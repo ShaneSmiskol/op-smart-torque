@@ -7,6 +7,7 @@ import math
 import pickle
 import numpy as np
 from tokenizer import tokenize
+import random
 
 os.chdir(os.getcwd())
 with open('data/smart_torque_data', 'r') as f:
@@ -42,7 +43,7 @@ for idx, line in enumerate(data):
 
 avg_time = 0.01  # openpilot runs longcontrol at 100hz, so this makes sense
 
-seq_time = 2.5
+seq_time = 2.0
 seq_len = round(seq_time / avg_time) + 1
 
 print('Tokenizing data...', flush=True)
@@ -56,17 +57,22 @@ print('Formatting data for model...', flush=True)
 x_train = np.array([[[point for idx, point in enumerate(sample) if idx != model_inputs.index('driver_torque')] for sample in seq[:-1]] for seq in data_sequences])
 y_train = np.array([seq[-1][model_inputs.index('driver_torque')] for seq in data_sequences])  # last sample, but driver torque
 
-# idx = 5488
-# y = [i[model_inputs.index('v_ego')] for i in data_sequences[idx]]
-# y2 = [i[model_inputs.index('angle_steers')] for i in data_sequences[idx]]
-# y3 = [i[model_inputs.index('delta_desired')] * 17.8 for i in data_sequences[idx]]
-# y4 = [i[model_inputs.index('driver_torque')] * .3 for i in data_sequences[idx]]
-# # plt.plot(range(len(data_sequences[idx])), y, label='v_ego (mph)')
-# plt.plot(range(len(data_sequences[idx])), y2, label='angle steers')
-# plt.plot(range(len(data_sequences[idx])), y3, label='delta desired')
-# plt.plot(range(len(data_sequences[idx])), y4, label='driver torque')
-#
-# plt.legend()
+def show_data():
+    for i in range(20):
+        idx = random.randrange(len(x_train))
+        plt.clf()
+        y = [i[model_inputs.index('v_ego')] for i in x_train[idx]]
+        y2 = [i[model_inputs.index('angle_steers')] for i in x_train[idx]]
+        y3 = [i[model_inputs.index('delta_desired')] * 17.8 for i in x_train[idx]]
+        # plt.plot(range(len(data_sequences[idx])), y, label='v_ego (mph)')
+        plt.plot(range(len(x_train[idx])), y2, label='angle steers')
+        plt.plot(range(len(x_train[idx])), y3, label='delta desired')
+        plt.plot(len(x_train[idx]), y_train[idx] * .3, 'bo', label='driver torque')
+
+        plt.legend()
+        plt.show()
+        plt.pause(0.01)
+        input()
 
 # y = [i['v_ego'] for i in data_sequences[0]]
 # y2 = [i['angle_offset'] for i in data]
@@ -91,7 +97,10 @@ y_train = np.array([seq[-1][model_inputs.index('driver_torque')] for seq in data
 # x_train = [{key: i[key] for key in i if key in x_keys} for i in data]
 # y_train = [i['driver_torque'] for i in data]
 
+
 with open('data/x_train', 'wb') as f:
     pickle.dump(x_train, f)
 with open('data/y_train', 'wb') as f:
     pickle.dump(y_train, f)
+with open('data/scales', 'wb') as f:
+    pickle.dump(scales, f)
