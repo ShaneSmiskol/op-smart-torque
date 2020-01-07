@@ -1,9 +1,10 @@
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow as tf
 from keras.backend.tensorflow_backend import set_session
 from keras.models import Sequential
 import keras
-from keras.layers import Dense, Dropout, LSTM, CuDNNLSTM, Activation, LeakyReLU, Flatten, PReLU, ELU, LeakyReLU
+from keras.layers import Dense, Dropout, LSTM, CuDNNLSTM, Activation, LeakyReLU, Flatten, PReLU, ELU, LeakyReLU, CuDNNGRU, CuDNNLSTM, BatchNormalization
 import numpy as np
 import random
 import matplotlib.pyplot as plt
@@ -19,55 +20,97 @@ import seaborn as sns
 from normalizer import normX
 # from keras.callbacks.tensorboard_v1 import TensorBoard
 
-# config = tf.ConfigProto()
-# config.gpu_options.per_process_gpu_memory_fraction = 1.
-# set_session(tf.Session(config=config))
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = 0.4
+set_session(tf.Session(config=config))
 # sns.distplot(data_here)
+
+
+def show_pred(test=True):
+    seq_len = 100
+    x = range(seq_len)
+    plt.clf()
+    if test:
+        rand_start = random.randint(0, len(x_test) - seq_len)
+        y = y_test[rand_start:rand_start + seq_len]
+        y2 = [model.predict(np.array([i]))[0][0] for i in x_test[rand_start:rand_start + seq_len]]
+    else:
+        rand_start = random.randint(0, len(x_train) - seq_len)
+        y = y_train[rand_start:rand_start + seq_len]
+        y2 = [model.predict(np.array([i]))[0][0] for i in x_train[rand_start:rand_start + seq_len]]
+    plt.title("random samples")
+    plt.plot(x, [np.interp(i, [0, 1], scales['driver_torque']) for i in y], label='ground truth')
+    plt.plot(x, [np.interp(i, [0, 1], scales['driver_torque']) for i in y2], label='prediction')
+    plt.legend()
+    plt.pause(0.01)
+    plt.show()
+
+
+def show_pred_seq():
+    for i in range(20):
+        plt.clf()
+        rand_start = random.randrange(len(x_test))
+        delta = x_test[rand_start][:-3]
+        plt.plot(len(delta), x_test[rand_start][-1], 'ro', label='angle steers')
+        plt.plot(range(len(delta)), delta, label='delta desired')
+        plt.plot(len(delta), model.predict(np.array([x_test[rand_start]]))[0][0], 'bo', label='prediction')
+        plt.legend()
+        plt.pause(0.01)
+        input()
+
 
 os.chdir(os.getcwd())
 
 print("Loading data...", flush=True)
-with open("data/x_train", "rb") as f:
+with open("model_data/x_train", "rb") as f:
     x_train = pickle.load(f)
-with open("data/y_train", "rb") as f:
+with open("model_data/y_train", "rb") as f:
     y_train = pickle.load(f)
+with open("model_data/scales", "rb") as f:
+    scales = pickle.load(f)
 
+# x_train = np.array([np.hstack(i) for i in x_train])
 
-model_inputs = ['angle_steers', 'delta_desired', 'angle_offset']  # , 'v_ego']
-
-print("Normalizing data...", flush=True)
-# x_train, scales = normX(x_train, model_inputs)
-
-x_train = normX(x_train, model_inputs)
-y_train = np.interp(y_train, [np.min(y_train), np.max(y_train)], [0, 1])
-# y_train = np.interp(y_train, [-1, 1], [0, 1])
-
-
-x_train, x_test, y_train, y_test = train_test_split(x_train, y_train, test_size=0.07)
+x_train, x_test, y_train, y_test = train_test_split(x_train, y_train, test_size=0.15)
 print(x_train.shape)
 
-opt = keras.optimizers.Adam(lr=0.0001)
+opt = keras.optimizers.Adam(lr=0.001)
 # opt = keras.optimizers.Adadelta(lr=2) #lr=.000375)
 # opt = keras.optimizers.SGD(lr=0.008, momentum=0.9)
 # opt = keras.optimizers.RMSprop(lr=0.01)#, decay=1e-5)
 # opt = keras.optimizers.Adagrad(lr=0.00025)
 # opt = keras.optimizers.Adagrad()
-opt = 'adam'
+# opt = 'adam'
 
 # opt = 'rmsprop'
 # opt = keras.optimizers.Adadelta()
 
 a_function = "relu"
+dropout = 0.1
 
 model = Sequential()
-model.add(Dense(4 + 1, activation=a_function, input_shape=(x_train.shape[1:])))
-model.add(Dropout(0.2))
-model.add(Dense(128, activation=a_function))
-model.add(Dropout(0.2))
-model.add(Dense(256, activation=a_function))
-model.add(Dropout(0.2))
-model.add(Dense(128, activation=a_function))
-model.add(Dropout(0.2))
+# model.add(CuDNNGRU(128, return_sequences=True, input_shape=x_train.shape[1:]))
+# model.add(CuDNNGRU(64, return_sequences=False))
+model.add(Dense(168, input_shape=(x_train.shape[1:])))
+model.add(BatchNormalization(scale=False))
+model.add(Activation('relu'))
+model.add(Dropout(0.4))
+
+model.add(Dense(128))
+model.add(BatchNormalization(scale=False))
+model.add(Activation('relu'))
+model.add(Dropout(0.1))
+
+model.add(Dense(64))
+model.add(BatchNormalization(scale=False))
+model.add(Activation('relu'))
+
+# model.add(Dropout(0.2))
+# model.add(Dense(32, activation=a_function))
+# model.add(Dropout(0.25))
+# model.add(Dense(32, activation=a_function))
+# model.add(Dropout(0.1))
+
 model.add(Dense(1))
 
 model.compile(loss='mse', optimizer=opt, metrics=['mae'])
@@ -80,21 +123,6 @@ model.fit(x_train, y_train,
           validation_data=(x_test, y_test))
 
 
-seq_len = 100
-plt.clf()
-rand_start = random.randint(0, len(x_test) - seq_len)
-x = range(seq_len)
-y = y_test[rand_start:rand_start+seq_len]
-y2 = [model.predict(np.array([i]))[0][0] for i in x_test[rand_start:rand_start+seq_len]]
-plt.title("random samples")
-plt.plot(x, y, label='ground truth')
-plt.plot(x, y2, label='prediction')
-plt.legend()
-plt.pause(0.01)
-plt.show()
-
-
-
 # preds = model.predict([[x_test]]).reshape(1, -1)
 # diffs = [abs(pred - ground) for pred, ground in zip(preds[0], y_test)]
 #
@@ -105,3 +133,7 @@ for i in range(20):
     print('Ground truth: {}'.format(y_test[c]))
     print('Prediction: {}'.format(model.predict(np.array([x_test[c]]))[0][0]))
     print()
+
+
+def save_model(name='model'):
+    model.save('models/h5_models/{}.h5'.format(name))

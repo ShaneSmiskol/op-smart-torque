@@ -10,13 +10,18 @@ from tokenizer import tokenize
 import random
 
 os.chdir(os.getcwd())
-with open('data/smart_torque_data', 'r') as f:
-    data = f.read().split('\n')
-keys, data = ast.literal_eval(data[0]), data[1:]
-data = [dict(zip(keys, i)) for i in map(json.loads, data)]
+
+driving_data = []
+for data_file in os.listdir('data/'):
+    if 'smart_torque_data' in data_file:
+        print(data_file)
+        with open('data/{}'.format(data_file), 'r') as f:
+            data = f.read().split('\n')
+        keys, data = ast.literal_eval(data[0]), data[1:]
+        driving_data += [dict(zip(keys, i)) for i in map(json.loads, data)]
 
 model_inputs = ['v_ego', 'angle_steers', 'delta_desired', 'angle_offset', 'driver_torque', 'time']
-data = np.array([[math.degrees(sample[key]) if key == 'delta_desired' else sample[key] for key in model_inputs] for sample in data])
+data = np.array([[math.degrees(sample[key]) if key == 'delta_desired' else sample[key] for key in model_inputs] for sample in driving_data])  # todo: see if not converting to degrees will make the model learn quicker
 
 print('Normalizing data...', flush=True)
 d_t = data.T
@@ -43,8 +48,11 @@ for idx, line in enumerate(data):
 
 avg_time = 0.01  # openpilot runs longcontrol at 100hz, so this makes sense
 
-seq_time = 2.0
-seq_len = round(seq_time / avg_time) + 1
+y_time_in_future = 0.01  # how far into the future we want to be predicting, in seconds (0.01 is next sample)
+y_future = round(y_time_in_future / avg_time)
+
+seq_time = 1.0
+seq_len = round(seq_time / avg_time) + y_future
 
 print('Tokenizing data...', flush=True)
 data_sequences = []
@@ -54,20 +62,45 @@ for i in data_split:
 print('Formatting data for model...', flush=True)
 # todo: speed up with numpy
 # all but last, remove driver torque from each sample \/
-x_train = np.array([[[point for idx, point in enumerate(sample) if idx != model_inputs.index('driver_torque')] for sample in seq[:-1]] for seq in data_sequences])
-y_train = np.array([seq[-1][model_inputs.index('driver_torque')] for seq in data_sequences])  # last sample, but driver torque
+# x_train = np.array([[[point for idx, point in enumerate(sample) if idx != model_inputs.index('driver_torque')] for sample in seq[:-1]] for seq in data_sequences])
+
+x_train = []
+y_train = []
+print(model_inputs)
+for seq in data_sequences:
+    y_train.append(seq[-1][model_inputs.index('driver_torque')])
+    seq = seq[:-y_future]
+
+    v_ego = seq[-1][model_inputs.index('v_ego')]
+    angle_offset = seq[-1][model_inputs.index('angle_offset')]
+    angle_steers = seq[-1][model_inputs.index('angle_steers')]
+
+    # seq = [[dat for idx, dat in enumerate(sample) if idx not in [model_inputs.index('v_ego'), model_inputs.index('angle_offset')]] for sample in seq]
+    # seq = [[sample[model_inputs.index('delta_desired')], sample[model_inputs.index('angle_steers')]] for sample in seq]
+    seq = [sample[model_inputs.index('delta_desired')] for sample in seq]
+
+    # seq = [item for sublist in seq for item in sublist]
+    seq += [v_ego, angle_offset, angle_steers]
+    x_train.append(seq)
+
+x_train, y_train = np.array(x_train), np.array(y_train)
+# x_train = np.array([seq[:-y_future] for seq in data_sequences])  # all but last x samples
+# y_train = np.array([seq[-1][model_inputs.index('driver_torque')] for seq in data_sequences])  # last sample, but driver torque
+
 
 def show_data():
     for i in range(20):
         idx = random.randrange(len(x_train))
         plt.clf()
-        y = [i[model_inputs.index('v_ego')] for i in x_train[idx]]
-        y2 = [i[model_inputs.index('angle_steers')] for i in x_train[idx]]
-        y3 = [i[model_inputs.index('delta_desired')] * 17.8 for i in x_train[idx]]
+        # y = [i[model_inputs.index('v_ego')] for i in x_train[idx]]
+        y2 = [i[0] for i in x_train[idx][:-1]]
+        y3 = [i[1] for i in x_train[idx][:-1]]
+        y4 = [i[2] * .3 for i in x_train[idx][:-1]]
         # plt.plot(range(len(data_sequences[idx])), y, label='v_ego (mph)')
-        plt.plot(range(len(x_train[idx])), y2, label='angle steers')
-        plt.plot(range(len(x_train[idx])), y3, label='delta desired')
-        plt.plot(len(x_train[idx]), y_train[idx] * .3, 'bo', label='driver torque')
+        plt.plot(range(len(y2)), y2, label='angle steers')
+        plt.plot(range(len(y3)), y3, label='delta desired')
+        plt.plot(len(x_train[idx]), y_train[idx] * .3, 'bo', label='driver torque future')
+        plt.plot(range(len(y4)), y4, label='driver torque')
 
         plt.legend()
         plt.show()
@@ -98,9 +131,10 @@ def show_data():
 # y_train = [i['driver_torque'] for i in data]
 
 
-with open('data/x_train', 'wb') as f:
+print('Dumping data...', flush=True)
+with open('model_data/x_train', 'wb') as f:
     pickle.dump(x_train, f)
-with open('data/y_train', 'wb') as f:
+with open('model_data/y_train', 'wb') as f:
     pickle.dump(y_train, f)
-with open('data/scales', 'wb') as f:
+with open('model_data/scales', 'wb') as f:
     pickle.dump(scales, f)
