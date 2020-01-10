@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import math
 import pickle
 import numpy as np
-from tokenizer import tokenize
+from tokenizer import tokenize, split_list
 import random
 
 os.chdir(os.getcwd())
@@ -40,7 +40,7 @@ model_inputs.remove('time')
 for idx, line in enumerate(data):
     if idx > 0:
         time_diff = line['time'] - data[idx - 1]['time']
-        if abs(time_diff) > 0.05:
+        if abs(time_diff) > 0.035:  # account for lag when writing data (otherwise we would use 0.01)
             counter += 1
             data_split.append([])
     data_split[counter].append([line[inp] for inp in model_inputs])  # removes time
@@ -48,16 +48,16 @@ for idx, line in enumerate(data):
 
 avg_time = 0.01  # openpilot runs longcontrol at 100hz, so this makes sense
 
-y_time_in_future = 0.01  # how far into the future we want to be predicting, in seconds (0.01 is next sample)
+y_time_in_future = 0.00  # how far into the future we want to be predicting, in seconds (0.01 is next sample)
 y_future = round(y_time_in_future / avg_time)
 
-seq_time = 1.0
+seq_time = 2.0
 seq_len = round(seq_time / avg_time) + y_future
 
 print('Tokenizing data...', flush=True)
 data_sequences = []
 for i in data_split:
-    data_sequences += tokenize(i, seq_len)
+    data_sequences += tokenize(i, seq_len)  # todo: experiment with splitting list instead. lot less training data, but possibly less redundant data
 
 print('Formatting data for model...', flush=True)
 # todo: speed up with numpy
@@ -68,8 +68,11 @@ x_train = []
 y_train = []
 print(model_inputs)
 for seq in data_sequences:
+    if abs(np.interp(seq[-1][model_inputs.index('driver_torque')], [0, 1], scales['driver_torque'])) > 100:
+        continue
     y_train.append(seq[-1][model_inputs.index('driver_torque')])
-    seq = seq[:-y_future]
+    if y_future != 0:
+        seq = seq[:-y_future]
 
     v_ego = seq[-1][model_inputs.index('v_ego')]
     angle_offset = seq[-1][model_inputs.index('angle_offset')]
