@@ -9,19 +9,20 @@ import random
 import matplotlib.pyplot as plt
 import pickle
 from sklearn.model_selection import train_test_split
-import shutil
-import functools
-import operator
 from tensorflow.keras.models import load_model
 import os
 import seaborn as sns
-from normalizer import normX
+from utils.st_helper import STHelper
+from utils.BASEDIR import BASEDIR
 # from keras.callbacks.tensorboard_v1 import TensorBoard
 
 # config = tf.ConfigProto()
 # config.gpu_options.per_process_gpu_memory_fraction = 0.8
 # set_session(tf.Session(config=config))
 # sns.distplot(data_here)
+
+helper = STHelper()
+os.chdir(BASEDIR)
 
 
 def show_pred(test=True, max_y=None):
@@ -73,7 +74,6 @@ def show_pred_seq():
         input()
 
 
-os.chdir(os.getcwd())
 
 print("Loading data...", flush=True)
 with open("model_data/x_train", "rb") as f:
@@ -103,12 +103,12 @@ a_function = "relu"
 dropout = 0.1
 
 model = Sequential()
-model.add(GRU(64, return_sequences=True, input_shape=x_train.shape[1:]))
-model.add(GRU(32, return_sequences=False))
+model.add(SimpleRNN(64, return_sequences=True, input_shape=x_train.shape[1:]))
+model.add(SimpleRNN(32, return_sequences=False))
 
 model.add(Dense(32, activation='relu'))
 model.add(Dense(16, activation='relu'))
-model.add(Dense(2))
+model.add(Dense(1))
 
 model.compile(loss='mse', optimizer=opt, metrics=['mae'])
 

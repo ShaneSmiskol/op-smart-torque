@@ -1,20 +1,17 @@
 import ast
 import os
-import time
-import json
 import matplotlib.pyplot as plt
 import math
 import pickle
 import numpy as np
 from utils.tokenizer import tokenize, split_list
-import random
 from utils.BASEDIR import BASEDIR
 
 os.chdir(BASEDIR)
 
 
-class ProcessData:
-    def __init__(self):
+class STHelper:
+    def __init__(self, process_data=False):
         self.driving_data = []
         self.scales = {}
         self.keys = None
@@ -23,18 +20,39 @@ class ProcessData:
         self.model_outputs = ['eps_torque']
         self.save_path = 'model_data'
 
+        self.needs_to_be_degrees = ['delta_desired', 'rate_desired']
+        self.sR = 17.8
+
         self.scale_to = [0, 1]
         self.avg_time = 0.01  # openpilot runs latcontrol at 100hz, so this makes sense
         self.y_future = round(0.0 / self.avg_time)  # how far into the future we want to be predicting, in seconds (0.01 is next sample)
         self.seq_len = round(0.5 / self.avg_time) + self.y_future  # how many seconds should the model see at any one time
 
+        if process_data:
+            self.start()
+        else:
+            self.load_scales()
+
     def start(self):
+        self.setup_dirs()
         self.load_data()
         self.normalize_data()
         self.split_data()
         self.tokenize_data()
         self.format_data()
         self.finalize()
+
+    def load_scales(self):
+        if not self.setup_dirs:
+            raise Exception('Error, need to run process.py first!')
+        with open('model_data/scales', 'rb') as f:
+            self.scales = pickle.loads(f.read())
+
+    def setup_dirs(self):
+        if not os.path.exists(self.save_path):
+            os.mkdir(self.save_path)
+            return True
+        return False
 
     def load_data(self):
         print('Loading data...', flush=True)
@@ -59,15 +77,9 @@ class ProcessData:
 
         for sample in _data:
             for key in sample:
-                if key == 'delta_desired':
-                    sample[key] = math.degrees(sample[key] * 17.8)
+                if key in self.needs_to_be_degrees:
+                    sample[key] = math.degrees(sample[key] * self.sR)
             self.driving_data.append(sample)
-
-    def unnorm(self, x, name):
-        return np.interp(x, self.scale_to, self.scales[name])
-
-    def norm(self, x, name):
-        return np.interp(x, self.scales[name], self.scale_to)
 
     def normalize_data(self):
         print('Normalizing data...', flush=True)
@@ -110,9 +122,6 @@ class ProcessData:
 
     def format_data(self):
         print('Formatting data for model...', flush=True)
-        # all but last, remove driver torque from each sample \/
-        # x_train = np.array([[[point for idx, point in enumerate(sample) if idx != model_inputs.index('driver_torque')] for sample in seq[:-1]] for seq in data_sequences])
-
         self.x_train = []
         self.y_train = []
         print(self.keys)
@@ -123,15 +132,9 @@ class ProcessData:
             if self.y_future != 0:
                 seq = seq[:-self.y_future]
 
-            # v_ego = seq[-1]['v_ego']
-            # angle_offset = seq[-1]['angle_offset']
-            # angle_steers = seq[-1]['angle_steers']
-
             seq_in = [[sample[des_key] for des_key in self.model_inputs] for sample in seq]
             seq_out = [seq[-1][des_key] for des_key in self.model_outputs]
 
-            # seq = [item for sublist in seq for item in sublist]
-            # seq += [v_ego, angle_offset, angle_steers]
             self.x_train.append(seq_in)
             self.y_train.append(seq_out)
 
@@ -145,6 +148,12 @@ class ProcessData:
         with open('model_data/scales', 'wb') as f:
             pickle.dump(self.scales, f)
 
+    def unnorm(self, x, name):
+        return np.interp(x, self.scale_to, self.scales[name])
 
-proc = ProcessData()
-proc.start()
+    def norm(self, x, name):
+        return np.interp(x, self.scales[name], self.scale_to)
+
+
+if __name__ == '__main__':
+    helper = STHelper(process_data=True)
