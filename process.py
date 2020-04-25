@@ -51,7 +51,7 @@ avg_time = 0.01  # openpilot runs longcontrol at 100hz, so this makes sense
 y_time_in_future = 0.00  # how far into the future we want to be predicting, in seconds (0.01 is next sample)
 y_future = round(y_time_in_future / avg_time)
 
-seq_time = 2.0
+seq_time = 1.0
 seq_len = round(seq_time / avg_time) + y_future
 
 print('Tokenizing data...', flush=True)

@@ -1,20 +1,18 @@
 import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow as tf
-from keras.backend.tensorflow_backend import set_session
-from keras.models import Sequential
-import keras
-from keras.layers import Dense, Dropout, LSTM, CuDNNLSTM, Activation, LeakyReLU, Flatten, PReLU, ELU, LeakyReLU, CuDNNGRU, CuDNNLSTM, BatchNormalization
+from tensorflow.keras.models import Sequential
+from tensorflow import keras
+from tensorflow.keras.layers import Dense, Dropout, LSTM, Activation, LeakyReLU, Flatten, PReLU, ELU, LeakyReLU, BatchNormalization
 import numpy as np
 import random
 import matplotlib.pyplot as plt
 import pickle
-from keras import backend as K
 from sklearn.model_selection import train_test_split
 import shutil
 import functools
 import operator
-from keras.models import load_model
+from tensorflow.keras.models import load_model
 import os
 import seaborn as sns
 from normalizer import normX
@@ -64,6 +62,7 @@ def show_pred_seq():
         plt.plot(len(delta), x_test[rand_start][-1], 'ro', label='angle steers')
         plt.plot(range(len(delta)), delta, label='delta desired')
         plt.plot(len(delta), model.predict(np.array([x_test[rand_start]]))[0][0], 'bo', label='prediction')
+        plt.plot(len(delta), y_train[rand_start], 'go', label='ground')
         plt.legend()
         plt.pause(0.01)
         input()
@@ -101,18 +100,20 @@ dropout = 0.1
 model = Sequential()
 # model.add(CuDNNGRU(128, return_sequences=True, input_shape=x_train.shape[1:]))
 # model.add(CuDNNGRU(64, return_sequences=False))
-model.add(Dense(204, input_shape=(x_train.shape[1:])))
-model.add(BatchNormalization(scale=False))
-model.add(Activation('relu'))
+model.add(Dense(128, input_shape=(x_train.shape[1:])))
+# model.add(BatchNormalization(scale=False))
+model.add(Activation('tanh'))
 # model.add(Dropout(0.4))
 
-model.add(Dense(128))
-model.add(BatchNormalization(scale=False))
-model.add(Activation('relu'))
+model.add(Dense(128, activation='relu'))
+# model.add(BatchNormalization(scale=False))
+# model.add(Activation('relu'))
 
-model.add(Dense(64))
-model.add(BatchNormalization(scale=False))
-model.add(Activation('relu'))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(32, activation='relu'))
+model.add(Dense(8, activation='relu'))
+# model.add(BatchNormalization(scale=False))
+# model.add(Activation('relu'))
 
 # model.add(Dropout(0.2))
 # model.add(Dense(32, activation=a_function))
@@ -122,12 +123,12 @@ model.add(Activation('relu'))
 
 model.add(Dense(1))
 
-model.compile(loss='mse', optimizer=opt, metrics=['mae'])
+model.compile(loss='mae', optimizer=opt, metrics=['mse'])
 
 # tensorboard = TensorBoard(log_dir="C:/Git/dynamic-follow-tf-v2/train_model/logs/{}".format("final model"))
 model.fit(x_train, y_train,
           shuffle=True,
-          batch_size=2048,
+          batch_size=16,
           epochs=1000,
           validation_data=(x_test, y_test))
 
