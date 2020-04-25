@@ -3,7 +3,7 @@ import os
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow import keras
-from tensorflow.keras.layers import Dense, Dropout, LSTM, Activation, LeakyReLU, Flatten, PReLU, ELU, LeakyReLU, BatchNormalization
+from tensorflow.keras.layers import Dense, Dropout, LSTM, LeakyReLU, Flatten, BatchNormalization, SimpleRNN, GRU
 import numpy as np
 import random
 import matplotlib.pyplot as plt
@@ -58,11 +58,16 @@ def show_pred_seq():
     for i in range(20):
         plt.clf()
         rand_start = random.randrange(len(x_test))
-        delta = x_test[rand_start][:-3]
-        plt.plot(len(delta), x_test[rand_start][-1], 'ro', label='angle steers')
+        delta = np.interp([i[0] for i in x_test[rand_start]], [0, 1], scales['delta_desired'])
+        angle = np.interp([i[1] for i in x_test[rand_start]], [0, 1], scales['angle_steers'])
+        # plt.plot(len(delta), x_test[rand_start][-1], 'ro', label='angle steers')
         plt.plot(range(len(delta)), delta, label='delta desired')
-        plt.plot(len(delta), model.predict(np.array([x_test[rand_start]]))[0][0], 'bo', label='prediction')
-        plt.plot(len(delta), y_train[rand_start], 'go', label='ground')
+        plt.plot(range(len(angle)), angle, label='angle steers')
+
+        pred = np.interp(model.predict(np.array([x_test[rand_start]]))[0][0], [0, 1], scales['eps_torque'])
+        ground = np.interp(y_train[rand_start][0], [0, 1], scales['eps_torque'])
+        plt.plot(len(delta), pred, 'bo', label='prediction')
+        plt.plot(len(delta), ground, 'go', label='ground')
         plt.legend()
         plt.pause(0.01)
         input()
@@ -88,8 +93,8 @@ opt = keras.optimizers.Adam(lr=0.001)
 opt = keras.optimizers.SGD(lr=0.008, momentum=0.9)
 # opt = keras.optimizers.RMSprop(lr=0.01)#, decay=1e-5)
 # opt = keras.optimizers.Adagrad(lr=0.00025)
-opt = keras.optimizers.Adagrad()
-# opt = 'adam'
+# opt = keras.optimizers.Adagrad()
+opt = 'adam'
 
 # opt = 'rmsprop'
 # opt = keras.optimizers.Adadelta()
@@ -98,37 +103,19 @@ a_function = "relu"
 dropout = 0.1
 
 model = Sequential()
-# model.add(CuDNNGRU(128, return_sequences=True, input_shape=x_train.shape[1:]))
-# model.add(CuDNNGRU(64, return_sequences=False))
-model.add(Dense(128, input_shape=(x_train.shape[1:])))
-# model.add(BatchNormalization(scale=False))
-model.add(Activation('tanh'))
-# model.add(Dropout(0.4))
-
-model.add(Dense(128, activation='relu'))
-# model.add(BatchNormalization(scale=False))
-# model.add(Activation('relu'))
+model.add(GRU(64, return_sequences=True, input_shape=x_train.shape[1:]))
+model.add(GRU(32, return_sequences=False))
 
 model.add(Dense(32, activation='relu'))
-model.add(Dense(32, activation='relu'))
-model.add(Dense(8, activation='relu'))
-# model.add(BatchNormalization(scale=False))
-# model.add(Activation('relu'))
+model.add(Dense(16, activation='relu'))
+model.add(Dense(2))
 
-# model.add(Dropout(0.2))
-# model.add(Dense(32, activation=a_function))
-# model.add(Dropout(0.25))
-# model.add(Dense(32, activation=a_function))
-# model.add(Dropout(0.1))
-
-model.add(Dense(1))
-
-model.compile(loss='mae', optimizer=opt, metrics=['mse'])
+model.compile(loss='mse', optimizer=opt, metrics=['mae'])
 
 # tensorboard = TensorBoard(log_dir="C:/Git/dynamic-follow-tf-v2/train_model/logs/{}".format("final model"))
 model.fit(x_train, y_train,
           shuffle=True,
-          batch_size=16,
+          batch_size=32,
           epochs=1000,
           validation_data=(x_test, y_test))
 
