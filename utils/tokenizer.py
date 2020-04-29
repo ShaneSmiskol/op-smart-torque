@@ -7,8 +7,8 @@ def tokenize(data, seq_length):
     return seq
 
 
-def split_list(l, n):
+def split_list(l, n, enforce_len=True):
     output = []
     for i in range(0, len(l), n):
         output.append(l[i:i + n])
-    return [i for i in output if len(i) == n]
+    return [i for i in output if (len(i) == n and enforce_len) or not enforce_len]

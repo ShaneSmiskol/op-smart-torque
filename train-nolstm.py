@@ -1,9 +1,12 @@
 import os
 # os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# import wandb
+# from wandb.keras import WandbCallback
+# wandb.init(project="smart-torque")
 import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow import keras
-from tensorflow.keras.layers import Dense, Dropout, LSTM, LeakyReLU, Flatten, BatchNormalization, SimpleRNN, GRU
+from tensorflow.keras.layers import Dense, Dropout, LSTM, LeakyReLU, Flatten, BatchNormalization, SimpleRNN, GRU, BatchNormalization, TimeDistributed, Lambda
 import numpy as np
 import random
 import matplotlib.pyplot as plt
@@ -14,6 +17,9 @@ import os
 import seaborn as sns
 from utils.st_helper import STHelper
 from utils.BASEDIR import BASEDIR
+from utils.tokenizer import split_list, tokenize
+import ast
+import matplotlib.gridspec as gridspec
 # from keras.callbacks.tensorboard_v1 import TensorBoard
 
 # config = tf.ConfigProto()
@@ -21,116 +27,135 @@ from utils.BASEDIR import BASEDIR
 # set_session(tf.Session(config=config))
 # sns.distplot(data_here)
 
-helper = STHelper()
+support = STHelper()
+support.init()
 os.chdir(BASEDIR)
 
-
-def show_pred(test=True, max_y=None):
-    seq_len = 100
-    x = range(seq_len)
-    plt.clf()
-    if test:
-        x_ = x_test
-        y_ = y_test
-    else:
-        x_ = x_train
-        y_ = y_train
-
-    if max_y is None:
-        max_y = 1000
-    samples = np.where(abs(np.interp(y_, [0, 1], scales['driver_torque'])) <= max_y)[0]
-    samples = np.random.choice(samples, size=seq_len)
-    x_ = x_[samples]
-    y_ = y_[samples]
-
-    rand_start = random.randint(0, len(x_) - seq_len)
-    y = y_[rand_start:rand_start + seq_len]
-    y2 = [model.predict(np.array([i]))[0][0] for i in x_[rand_start:rand_start + seq_len]]
-
-    plt.title("random samples")
-    plt.plot(x, [np.interp(i, [0, 1], scales['driver_torque']) for i in y], label='ground truth')
-    plt.plot(x, [np.interp(i, [0, 1], scales['driver_torque']) for i in y2], label='prediction')
-    plt.legend()
-    plt.pause(0.01)
-    plt.show()
+# fig, ax = plt.subplots(2, 2)
+# ax = ax.flatten()
 
 
-def show_pred_seq():
-    for i in range(20):
-        plt.clf()
-        rand_start = random.randrange(len(x_test))
-        delta = np.interp([i[0] for i in x_test[rand_start]], [0, 1], scales['delta_desired'])
-        angle = np.interp([i[1] for i in x_test[rand_start]], [0, 1], scales['angle_steers'])
-        # plt.plot(len(delta), x_test[rand_start][-1], 'ro', label='angle steers')
-        plt.plot(range(len(delta)), delta, label='delta desired')
-        plt.plot(range(len(angle)), angle, label='angle steers')
+def show_pred_new(epoch=0, sample_idx=None, figure_idx=0):
+  if sample_idx is None:
+    sample_idx = random.randrange(len(x_train))
+  x = x_train[sample_idx]
+  y = y_train[sample_idx]
 
-        pred = np.interp(model.predict(np.array([x_test[rand_start]]))[0][0], [0, 1], scales['eps_torque'])
-        ground = np.interp(y_train[rand_start][0], [0, 1], scales['eps_torque'])
-        plt.plot(len(delta), pred, 'bo', label='prediction')
-        plt.plot(len(delta), ground, 'go', label='ground')
-        plt.legend()
-        plt.pause(0.01)
-        input()
+  pred = model.predict(np.array([x]))[0]
 
+  y = support.unnorm(y, 'eps_torque')
+  pred = support.unnorm(pred, 'eps_torque')
+
+  plt.figure(figure_idx)
+  plt.clf()
+  plt.plot(y, label='eps_torque ground')
+  plt.plot(pred, label='eps_torque pred')
+  plt.legend()
+  plt.show()
+  plt.pause(0.01)
+  # plt.savefig('models/model_imgs/{}'.format(epoch))
+
+
+class ShowPredictions(tf.keras.callbacks.Callback):
+  def __init__(self):
+    super().__init__()
+    self.every = 1
+    self.sample_idx1 = random.randrange(len(x_train))
+    self.sample_idx2 = random.randrange(len(x_train))
+    self.sample_idx3 = random.randrange(len(x_train))
+    # self.sample_idx1 = 0
+    # self.sample_idx2 = 4
+    # self.sample_idx3 = 8
+
+  def on_epoch_end(self, epoch, logs=None):
+    if not (epoch + self.every) % self.every:
+      show_pred_new(epoch, self.sample_idx1, 0)
+      show_pred_new(epoch, self.sample_idx2, 1)
+      show_pred_new(epoch, self.sample_idx3, 2)
 
 
 print("Loading data...", flush=True)
 with open("model_data/x_train", "rb") as f:
-    x_train = pickle.load(f)
+  x_train = pickle.load(f)
 with open("model_data/y_train", "rb") as f:
-    y_train = pickle.load(f)
+  y_train = pickle.load(f)
 with open("model_data/scales", "rb") as f:
-    scales = pickle.load(f)
+  scales = pickle.load(f)
 
-# x_train = np.array([np.hstack(i) for i in x_train])
+samples = 100000000000000
+x_train = np.array(x_train[:samples])
+y_train = np.array(y_train[:samples])
 
-x_train, x_test, y_train, y_test = train_test_split(x_train, y_train, test_size=0.15)
+x_train = np.array([i.flatten() for i in x_train[:samples]])
+y_train = np.array([i.flatten() for i in y_train[:samples]])
+# y_train = helper.unnorm(y_train, 'eps_torque')
+
+x_train, x_test, y_train, y_test = train_test_split(x_train, y_train, test_size=0.175)
 print(x_train.shape)
+print(y_train.shape)
 
-opt = keras.optimizers.Adam(lr=0.001)
 # opt = keras.optimizers.Adadelta(lr=2) #lr=.000375)
-opt = keras.optimizers.SGD(lr=0.008, momentum=0.9)
-# opt = keras.optimizers.RMSprop(lr=0.01)#, decay=1e-5)
+opt = keras.optimizers.RMSprop(lr=0.001)#, decay=1e-5)
 # opt = keras.optimizers.Adagrad(lr=0.00025)
-# opt = keras.optimizers.Adagrad()
-opt = 'adam'
-
+opt = keras.optimizers.SGD(lr=0.1, momentum=0.3)
+opt = keras.optimizers.Adagrad()
 # opt = 'rmsprop'
 # opt = keras.optimizers.Adadelta()
+opt = keras.optimizers.Ftrl(0.1)
+opt = keras.optimizers.Adam(amsgrad=True)
+# opt = 'adam'
 
+recurrent = True
 a_function = "relu"
 dropout = 0.1
 
 model = Sequential()
-model.add(SimpleRNN(64, return_sequences=True, input_shape=x_train.shape[1:]))
-model.add(SimpleRNN(32, return_sequences=False))
+# model.add(Dropout(0.2))
+# model.add(GRU(64, return_sequences=True, input_shape=x_train.shape[1:]))
+# model.add(GRU(64, return_sequences=True))
+# model.add(GRU(64, return_sequences=True))
+# model.add(GRU(64, return_sequences=False))
+# model.add(Lambda(lambda x: x[:,0,:,:], output_shape=(1, 50, 1) + x_train.shape[2:]))
 
-model.add(Dense(32, activation='relu'))
-model.add(Dense(16, activation='relu'))
-model.add(Dense(1))
+model.add(Dense(128, activation=a_function, input_shape=x_train.shape[1:]))
+# model.add(BatchNormalization())
+model.add(Dense(128, activation=a_function))
+# model.add(BatchNormalization())
+model.add(Dense(128, activation=a_function))
+model.add(Dense(64, activation=a_function))
+model.add(Dense(64, activation=a_function))
+model.add(Dense(64, activation=a_function))
+# model.add(BatchNormalization())
+
+# model.add(Dense(64, activation=a_function))
+# model.add(BatchNormalization())
+
+model.add(Dense(y_train.shape[1]))
 
 model.compile(loss='mse', optimizer=opt, metrics=['mae'])
-
 # tensorboard = TensorBoard(log_dir="C:/Git/dynamic-follow-tf-v2/train_model/logs/{}".format("final model"))
+# callbacks = [ShowPredictions(), WandbCallback()]
+show_predictions = ShowPredictions()
+callbacks = [show_predictions]
 model.fit(x_train, y_train,
           shuffle=True,
-          batch_size=32,
-          epochs=1000,
-          validation_data=(x_test, y_test))
+          batch_size=1024,
+          epochs=10000,
+          validation_data=(x_test, y_test),
+          callbacks=callbacks)
 
 
-# preds = model.predict([Ztewrmin[x_test]]).reshape(1, -1)
-# diffs = [abs(pred - ground) for pred, ground in zip(preds[0], y_test)]
-#
-# print("Test accuracy: {}".format(np.interp(sum(diffs) / len(diffs), [0, 1], [1, 0], ext=True)))
+preds = model.predict(x_test).reshape(1, -1)
+diffs = [abs(pred - ground) for pred, ground in zip(preds[0], y_test[0])]
+
+print("Test accuracy: {}%".format(round(np.interp(sum(diffs) / len(diffs), [0, 1], [1, 0]) * 100, 4)))
 
 for i in range(20):
-    c = random.randint(0, len(x_test))
-    print('Ground truth: {}'.format(y_test[c]))
-    print('Prediction: {}'.format(model.predict(np.array([x_test[c]]))[0][0]))
-    print()
+  c = random.randint(0, len(x_test))
+  print('Ground truth: {}'.format(support.unnorm(y_test[c][0], 'eps_torque')))
+  print('Prediction: {}'.format(support.unnorm(model.predict(np.array([x_test[c]]))[0][0], 'eps_torque')))
+  print()
 
 
 def save_model(name='model'):
-    model.save('models/h5_models/{}.h5'.format(name))
+  model.save('models/h5_models/{}.h5'.format(name))
